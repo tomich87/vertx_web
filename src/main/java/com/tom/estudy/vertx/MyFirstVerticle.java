@@ -1,7 +1,9 @@
 package com.tom.estudy.vertx;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import com.tom.estudy.vertx.model.Whisky;
 
@@ -9,6 +11,9 @@ import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Future;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.Json;
+import io.vertx.core.json.JsonObject;
+import io.vertx.ext.jdbc.JDBCClient;
+import io.vertx.ext.sql.SQLConnection;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
@@ -16,11 +21,31 @@ import io.vertx.ext.web.handler.StaticHandler;
 
 public class MyFirstVerticle extends AbstractVerticle {
 
+	JDBCClient jdbc;
+
 	// Store our product
 	private Map<Integer, Whisky> products = new LinkedHashMap<>();
 
 	@Override
 	public void start(Future<Void> fut) {
+
+		JsonObject config = new JsonObject().put("url", "jdbc:hsqldb:mem:db?shutdown=true").put("driver_class",
+				"org.hsqldb.jdbcDriver");
+
+		jdbc = JDBCClient.createShared(vertx, config, "My-Whisky-Collection");
+		jdbc.getConnection(res -> {
+			if (res.succeeded()) {
+				SQLConnection connection = res.result();
+				connection.execute("CREATE TABLE IF NOT EXISTS Whisky (id INTEGER IDENTITY, name varchar(100), "
+						+ "origin varchar(100))", res2 -> {
+							if (res2.succeeded()) {
+								Void rs = res2.result();
+							}
+						});
+			} else {
+				// Failed to get connection - deal with it
+			}
+		});
 		createSomeData();
 		Router router = Router.router(vertx);
 		router.route("/").handler(routingContext -> {
@@ -36,7 +61,7 @@ public class MyFirstVerticle extends AbstractVerticle {
 		router.put("/api/whiskies/:id").handler(this::updateOne);
 		router.delete("/api/whiskies/:id").handler(this::deleteOne);
 
-		vertx.createHttpServer().requestHandler(router::accept).listen(
+		vertx.createHttpServer().requestHandler(router).listen(
 				// Retrieve the port from the configuration,
 				// default to 8080.
 				config().getInteger("http.port", 8080), result -> {
@@ -57,8 +82,16 @@ public class MyFirstVerticle extends AbstractVerticle {
 	}
 
 	private void getAll(RoutingContext routingContext) {
-		routingContext.response().putHeader("content-type", "application/json; charset=utf-8")
-				.end(Json.encodePrettily(products.values()));
+		jdbc.getConnection(ar -> {
+			SQLConnection connection = ar.result();
+			connection.query("SELECT * FROM Whisky", result -> {
+				List<Whisky> whiskies = result.result().getRows().stream().map(Whisky::new)
+						.collect(Collectors.toList());
+				routingContext.response().putHeader("content-type", "application/json; charset=utf-8")
+						.end(Json.encodePrettily(whiskies));
+				connection.close(); // Close the connection
+			});
+		});
 	}
 
 	private void addOne(RoutingContext routingContext) {
@@ -67,7 +100,7 @@ public class MyFirstVerticle extends AbstractVerticle {
 		routingContext.response().setStatusCode(201).putHeader("content-type", "application/json; charset=utf-8")
 				.end(Json.encodePrettily(whisky));
 	}
-	
+
 	private void updateOne(RoutingContext routingContext) {
 		String id = routingContext.request().getParam("id");
 		if (id == null) {
