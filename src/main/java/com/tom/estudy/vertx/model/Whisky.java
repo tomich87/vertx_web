@@ -2,6 +2,9 @@ package com.tom.estudy.vertx.model;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.vertx.core.json.Json;
+import io.vertx.core.json.JsonObject;
+
 public class Whisky {
 
 	private static final AtomicInteger COUNTER = new AtomicInteger();
@@ -16,6 +19,13 @@ public class Whisky {
 		this.id = COUNTER.getAndIncrement();
 		this.name = name;
 		this.origin = origin;
+	}
+	
+	public Whisky(JsonObject object) {
+		Whisky temp = Json.decodeValue(object.encodePrettily(), Whisky.class);
+		this.id = COUNTER.getAndIncrement();
+		this.name = temp.getName();
+		this.origin = temp.getOrigin();
 	}
 
 	public Whisky() {
